@@ -1,5 +1,5 @@
 dps: src/* dps-build
-	mkdir bin
+	mkdir -p bin
 	$(MAKE) -C dps-build && cp dps-build/dps-build bin/
 	$(CC) $(CFLAGS) \
 		-g -Werror -I. \
