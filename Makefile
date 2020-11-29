@@ -1,11 +1,14 @@
-dps: src/*
+dps: src/* dps-build
+	mkdir bin
+	$(MAKE) -C dps-build && cp dps-build/dps-build bin/
 	$(CC) $(CFLAGS) \
 		-g -Werror -I. \
-		-o $@ $< \
+		-o bin/$@ $< \
 		$(LIBS)
 
 clean:
-	rm -f dps
+	$(MAKE) -C dps-build clean
+	rm -drf bin/
 
 .DEFAULT_GOAL=dps
 .PHONY: clean
