@@ -1,3 +1,5 @@
+LIBS = -lcrypto -lzstd
+
 dps: src/* dps-build
 	mkdir -p bin
 	$(MAKE) -C dps-build && cp dps-build/dps-build bin/
