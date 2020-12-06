@@ -39,6 +39,7 @@ struct pkg_blob
 
 struct binpkg {
     char* binpkg_path;
+    char* pkg_name;
     struct pkg_blob* blobs;
     u_int32_t blob_count;
     bool failed;
@@ -55,6 +56,25 @@ struct binpkg binpkg_load(char* binpkg_path)
     char magic[15];
     fgets(magic, 15, pkgfile);
     assert(!strcmp(magic, "dps-binary-pkg"));
+
+    char* pkgname = malloc(1);
+    int32_t pkgnamecount = 0;
+    bool namedone = false;
+    while(!namedone)
+    {
+        pkgnamecount += 1;
+        pkgname = realloc(pkgname, pkgnamecount);
+        char c = fgetc(pkgfile);
+        if(c == ':')
+        {
+            pkgname[pkgnamecount - 1] = 0;
+            namedone = true;
+        } else {
+            pkgname[pkgnamecount - 1] = c;
+        }
+    }
+    printf("Package name: %s\n", pkgname);
+    output.pkg_name = pkgname;
 
     u_int64_t fd_start = ftell(pkgfile);
 
@@ -189,13 +209,23 @@ void binpkg_install(struct binpkg* pkg, char* install_dir)
             destpath = realloc(destpath, destpathlen + strlen(pkg->blobs[i].dest[j]) + 1);
             strcat(destpath, pkg->blobs[i].dest[j]);
             printf("linking %s\n", destpath);
-            link(dpath, destpath);
+            int lstatus = link(dpath, destpath);
+            assert(lstatus == 0);
         }
 
         free(destpath);
     }
     fclose(file);
     free(dpath);
+
+    char* copypath = malloc(strlen(install_dir) + strlen("/usr/pkgs/")
+        + strlen(pkg->pkg_name) + strlen(".dpsbp") + 1);
+    strcpy(copypath, install_dir);
+    strcat(copypath, "/dps/current/pkgs/");
+    strcat(copypath, pkg->pkg_name);
+    strcat(copypath, ".dpsbp");
+
+    file_copy(pkg->binpkg_path, copypath);
 }
 
 int main(int argc, char* argv[])
@@ -206,6 +236,7 @@ int main(int argc, char* argv[])
     {
         printf("Failed to load package %s\n", pkg.binpkg_path);
         free(pkg.binpkg_path);
+        free(pkg.pkg_name);
         return 1;
     }
     binpkg_install(&pkg, "test");
