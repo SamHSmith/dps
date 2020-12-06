@@ -4,9 +4,29 @@
 #include <openssl/sha.h>
 #include <zstd.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <string.h>
 #include <assert.h>
 #include <stdbool.h>
+
+void file_copy(char* from_path, char* to_path)
+{
+    char    c[4096]; // or any other constant you like
+    FILE    *stream_R = fopen(from_path, "r");
+    FILE    *stream_W = fopen(to_path, "w");   //create and write to file
+
+    while (!feof(stream_R)) {
+        size_t bytes = fread(c, 1, sizeof(c), stream_R);
+        if (bytes) {
+            fwrite(c, 1, bytes, stream_W);
+        }
+    }
+
+    //close streams
+    fclose(stream_R);
+    fclose(stream_W);
+}
 
 struct pkg_blob
 {
@@ -113,6 +133,71 @@ struct binpkg binpkg_load(char* binpkg_path)
     return output;
 }
 
+void binpkg_install(struct binpkg* pkg, char* install_dir)
+{
+    char* dpath = malloc(strlen(install_dir) + strlen("/dps/store/") + (SHA512_DIGEST_LENGTH * 2) + 1);
+    strcpy(dpath, install_dir);
+    strcat(dpath, "/dps/store/");
+    char* hash = dpath + strlen(dpath);
+
+    FILE* file = fopen(pkg->binpkg_path, "r");
+
+    void* readbuf = malloc(1);
+    void* writebuf = malloc(1);
+
+    for(u_int32_t i = 0; i < pkg->blob_count; i++)
+    {
+        readbuf = realloc(readbuf, pkg->blobs[i].blob_length);
+        writebuf = realloc(writebuf, pkg->blobs[i].blob_final_length);
+
+        fseek(file, pkg->blobs[i].blob_start, SEEK_SET);
+        fread(readbuf, pkg->blobs[i].blob_length, 1, file);
+
+        ZSTD_decompress(writebuf, pkg->blobs[i].blob_final_length,
+            readbuf, pkg->blobs[i].blob_length);
+
+        unsigned char bhash[SHA512_DIGEST_LENGTH];
+        SHA512(writebuf, pkg->blobs[i].blob_final_length, bhash);
+
+        *hash = 0;
+        for(u_int32_t j = 0; j < SHA512_DIGEST_LENGTH; j++)
+        {
+            char t[2];
+            sprintf(t, "%x", bhash[j]);
+            strcat(dpath, t);
+        }
+
+        struct stat st;
+        int sret = stat(dpath, &st);
+
+        if(sret != 0) {
+            printf("copying to %s\n", dpath);
+            FILE* storefile = fopen(dpath, "w");
+            fwrite(writebuf, pkg->blobs[i].blob_final_length, 1, storefile);
+            fclose(storefile);
+            chmod(dpath, 444 | 111); //TODO dspbp exec flag
+        }
+
+        char* destpath = malloc(strlen(install_dir) + strlen("/usr/") + 1);
+        strcpy(destpath, install_dir);
+        strcat(destpath, "/usr/");
+        u_int32_t destpathlen = strlen(destpath);
+
+        for(u_int32_t j = 0; j < pkg->blobs[i].dest_count; j++)
+        {
+            destpath[destpathlen] = 0;
+            destpath = realloc(destpath, destpathlen + strlen(pkg->blobs[i].dest[j]) + 1);
+            strcat(destpath, pkg->blobs[i].dest[j]);
+            printf("linking %s\n", destpath);
+            link(dpath, destpath);
+        }
+
+        free(destpath);
+    }
+    fclose(file);
+    free(dpath);
+}
+
 int main(int argc, char* argv[])
 {
     printf("this is dps\n");
@@ -123,4 +208,5 @@ int main(int argc, char* argv[])
         free(pkg.binpkg_path);
         return 1;
     }
+    binpkg_install(&pkg, "test");
 }
