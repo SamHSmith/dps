@@ -153,10 +153,10 @@ struct binpkg binpkg_load(char* binpkg_path)
     return output;
 }
 
-void binpkg_install(struct binpkg* pkg, char* install_dir)
+void binpkg_install(struct binpkg* pkg, char* install_root, char* install_dir)
 {
-    char* dpath = malloc(strlen(install_dir) + strlen("/dps/store/") + (SHA512_DIGEST_LENGTH * 2) + 1);
-    strcpy(dpath, install_dir);
+    char* dpath = malloc(strlen(install_root) + strlen("/dps/store/") + (SHA512_DIGEST_LENGTH * 2) + 1);
+    strcpy(dpath, install_root);
     strcat(dpath, "/dps/store/");
     char* hash = dpath + strlen(dpath);
 
@@ -218,10 +218,10 @@ void binpkg_install(struct binpkg* pkg, char* install_dir)
     fclose(file);
     free(dpath);
 
-    char* copypath = malloc(strlen(install_dir) + strlen("/usr/pkgs/")
+    char* copypath = malloc(strlen(install_dir) + strlen("/pkgs/")
         + strlen(pkg->pkg_name) + strlen(".dpsbp") + 1);
     strcpy(copypath, install_dir);
-    strcat(copypath, "/dps/current/pkgs/");
+    strcat(copypath, "/pkgs/");
     strcat(copypath, pkg->pkg_name);
     strcat(copypath, ".dpsbp");
 
@@ -239,5 +239,5 @@ int main(int argc, char* argv[])
         free(pkg.pkg_name);
         return 1;
     }
-    binpkg_install(&pkg, "test");
+    binpkg_install(&pkg, "test", "test/dps/installs/0");
 }
