@@ -53,6 +53,12 @@ struct binpkg binpkg_load(char* binpkg_path)
 
     printf("loading pkg-file %s\n", binpkg_path);
     FILE* pkgfile = fopen(binpkg_path, "r");
+    if(pkgfile == NULL)
+    {
+        printf("invalid path to .dpsbp\n");
+        output.failed = true;
+        return output;
+    }
     char magic[15];
     fgets(magic, 15, pkgfile);
     assert(!strcmp(magic, "dps-binary-pkg"));
@@ -153,8 +159,63 @@ struct binpkg binpkg_load(char* binpkg_path)
     return output;
 }
 
+void binpkg_remove(char* pkg_name, char* install_root, char* install_dir)
+{
+    char* copypath = malloc(strlen(install_dir) + strlen("/pkgs/")
+        + strlen(pkg_name) + strlen(".dpsbp") + 1);
+    strcpy(copypath, install_dir);
+    strcat(copypath, "/pkgs/");
+    strcat(copypath, pkg_name);
+    strcat(copypath, ".dpsbp");
+
+    struct binpkg p = binpkg_load(copypath);
+
+    if(p.failed == false) {
+    struct binpkg* pkg = &p;
+ 
+    char* dpath = malloc(strlen(install_root) + strlen("/dps/store/") + (SHA512_DIGEST_LENGTH * 2) + 1);
+    strcpy(dpath, install_root);
+    strcat(dpath, "/dps/store/");
+    char* hash = dpath + strlen(dpath);
+ 
+    for(u_int32_t i = 0; i < pkg->blob_count; i++)
+    {
+        char* destpath = malloc(strlen(install_dir) + strlen("/usr/") + 1);
+        strcpy(destpath, install_dir);
+        strcat(destpath, "/usr/");
+        u_int32_t destpathlen = strlen(destpath);
+ 
+        for(u_int32_t j = 0; j < pkg->blobs[i].dest_count; j++)
+        {
+            destpath[destpathlen] = 0;
+            destpath = realloc(destpath, destpathlen + strlen(pkg->blobs[i].dest[j]) + 1);
+            strcat(destpath, pkg->blobs[i].dest[j]);
+            printf("unlinking %s\n", destpath);
+            int lstatus = unlink(destpath);
+            if(lstatus != 0) { printf("couldn't unlink %s. Skipping...\n", destpath); }
+        }
+ 
+        free(destpath);
+    }
+
+    free(dpath);
+    } else {
+        printf("%s was not a valid package...\n", copypath);
+    }
+    unlink(copypath);
+}
+
 void binpkg_install(struct binpkg* pkg, char* install_root, char* install_dir)
 {
+    char* copypath = malloc(strlen(install_dir) + strlen("/pkgs/")
+        + strlen(pkg->pkg_name) + strlen(".dpsbp") + 1);
+    strcpy(copypath, install_dir);
+    strcat(copypath, "/pkgs/");
+    strcat(copypath, pkg->pkg_name);
+    strcat(copypath, ".dpsbp");
+
+    binpkg_remove(pkg->pkg_name, install_root, install_dir);
+
     char* dpath = malloc(strlen(install_root) + strlen("/dps/store/") + (SHA512_DIGEST_LENGTH * 2) + 1);
     strcpy(dpath, install_root);
     strcat(dpath, "/dps/store/");
@@ -218,26 +279,60 @@ void binpkg_install(struct binpkg* pkg, char* install_root, char* install_dir)
     fclose(file);
     free(dpath);
 
-    char* copypath = malloc(strlen(install_dir) + strlen("/pkgs/")
-        + strlen(pkg->pkg_name) + strlen(".dpsbp") + 1);
-    strcpy(copypath, install_dir);
-    strcat(copypath, "/pkgs/");
-    strcat(copypath, pkg->pkg_name);
-    strcat(copypath, ".dpsbp");
-
     file_copy(pkg->binpkg_path, copypath);
+}
+
+void get_install_dirs(char** install_root, char** install_dir)
+{
+    *install_root = getenv("DPS_ROOT_DIR");
+    *install_dir = getenv("DPS_INSTALL_DIR");
+
+    assert(*install_root != NULL);
+
+    if(*install_dir == NULL)
+    {
+        *install_dir = malloc(strlen(*install_root) + strlen("/dps/current") + 1);
+        strcpy(*install_dir, *install_root);
+        strcat(*install_dir, "/dps/current");
+
+        char current[256];
+        ssize_t clen = readlink(*install_dir, current, 256);
+        current[clen] = 0;
+
+        *install_dir = realloc(*install_dir, strlen(*install_root) + strlen("/dps/") + clen + 1);
+        strcpy(*install_dir, *install_root);
+        strcat(*install_dir, "/dps/");
+        strcat(*install_dir, current);
+    }
 }
 
 int main(int argc, char* argv[])
 {
-    printf("this is dps\n");
-    struct binpkg pkg = binpkg_load("dps-build/test/pkg.dpsbp");
-    if(pkg.failed)
-    {
-        printf("Failed to load package %s\n", pkg.binpkg_path);
-        free(pkg.binpkg_path);
-        free(pkg.pkg_name);
-        return 1;
+    char* install_root;
+    char* install_dir;
+    get_install_dirs(&install_root, &install_dir);
+
+    if(argc < 3) {
+        printf("use: dps i *path_to_pkg.dpsbp* / dps r *name of package*\n");
+        return 2;
     }
-    binpkg_install(&pkg, "test", "test/dps/installs/0");
+
+    if(strcmp(argv[1], "i") == 0)
+    {
+        struct binpkg pkg = binpkg_load(argv[2]);
+        if(pkg.failed)
+        {
+            printf("Failed to load package %s\n", pkg.binpkg_path);
+            free(pkg.binpkg_path);
+            free(pkg.pkg_name);
+            return 1;
+        }
+        binpkg_install(&pkg, install_root, install_dir);
+    } else if(strcmp(argv[1], "r") == 0)
+    {
+        binpkg_remove(argv[2], install_root, install_dir);
+    } else {
+        printf("please specify i for install or r for remove\n");
+        return 2;
+    }
 }
