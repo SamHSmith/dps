@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 #include <string.h>
 #include <assert.h>
 #include <stdbool.h>
@@ -26,6 +27,45 @@ void file_copy(char* from_path, char* to_path)
     //close streams
     fclose(stream_R);
     fclose(stream_W);
+}
+
+int mkdir_p(const char *path)
+{
+    /* Adapted from http://stackoverflow.com/a/2336245/119527 */
+    const size_t len = strlen(path);
+    char _path[PATH_MAX];
+    char *p; 
+
+    errno = 0;
+
+    /* Copy string so its mutable */
+    if (len > sizeof(_path)-1) {
+        errno = ENAMETOOLONG;
+        return -1; 
+    }   
+    strcpy(_path, path);
+
+    /* Iterate the string */
+    for (p = _path + 1; *p; p++) {
+        if (*p == '/') {
+            /* Temporarily truncate */
+            *p = '\0';
+
+            if (mkdir(_path, S_IRWXU) != 0) {
+                if (errno != EEXIST)
+                    return -1; 
+            }
+
+            *p = '/';
+        }
+    }   
+
+    if (mkdir(_path, S_IRWXU) != 0) {
+        if (errno != EEXIST)
+            return -1; 
+    }   
+
+    return 0;
 }
 
 struct pkg_blob
@@ -269,6 +309,19 @@ void binpkg_install(struct binpkg* pkg, char* install_root, char* install_dir)
             destpath[destpathlen] = 0;
             destpath = realloc(destpath, destpathlen + strlen(pkg->blobs[i].dest[j]) + 1);
             strcat(destpath, pkg->blobs[i].dest[j]);
+
+            for(int32_t k = strlen(destpath) - 1; k > 0; k--)
+            {
+                if(destpath[k] == '/')
+                {
+                    destpath[k] = 0;
+                    k = -1;
+                }
+            }
+            mkdir_p(destpath);
+            destpath[destpathlen] = 0;
+            strcat(destpath, pkg->blobs[i].dest[j]);
+
             printf("linking %s\n", destpath);
             int lstatus = link(dpath, destpath);
             assert(lstatus == 0);
